@@ -7,7 +7,7 @@ library(factoextra)
 library(h2o)
 library(ggthemes)
 
-channel <-odbcConnect("saxo034", uid="R", pwd="sqlR2017")
+channel <-odbcConnect("", uid="R", pwd="")
 
 sqlquery <- "SELECT [DateOrdered_Key],[Customer_Key],[5_DB2]
               FROM [EDW].[fact].[OrderFact]
