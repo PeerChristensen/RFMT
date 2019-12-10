@@ -3,6 +3,7 @@ library(RODBC)
 library(lubridate)
 library(tidyverse)
 library(ggiraphExtra)
+library(recipes)
 
 
 channel <-odbcConnect("saxo034", uid="R", pwd="sqlR2017")
@@ -16,6 +17,7 @@ sqlquery <- "SELECT [DateOrdered_Key],[Customer_Key],[5_DB2]
 df <- sqlQuery(channel, sqlquery)
 close(channel)
 
+cols = c("#c9b037", "#b4b4b4", "#6a3805")
 
 df <- df %>%
   as_tibble() %>%
@@ -102,7 +104,7 @@ rfm %>%
 # n per segment
 rfm %>%
   group_by((Customer_Segment)) %>%
-  count()
+  count() # %>% htmlTable()
 
 # --------------------------------------------------------------------------------
 # plots
@@ -123,17 +125,30 @@ rfm %>%
  
 # --------------------------------------------------------------------------------- 
 
-# preprocess data: log, center, scale
+# preprocess data for plots: log, center, scale
 
-rfm_norm <- rfm %>%
-  select(RecencyDays,Frequency,Monetary,Tenure) %>% 
-  mutate(Monetary = ifelse(Monetary<0,NA,Monetary)) %>%
-  apply(2,function(x) log(x+1)) %>%
-  apply(2, function(x) round(x-mean(x,na.rm=T),1)) %>%
-  scale() %>%
-  as_tibble %>%
+# rfm_norm <- rfm %>%
+#   select(RecencyDays,Frequency,Monetary,Tenure) %>% 
+#   mutate(Monetary = ifelse(Monetary<0,NA,Monetary)) %>%
+#   apply(2,function(x) log(x+1)) %>%
+#   apply(2, function(x) round(x-mean(x,na.rm=T),1)) %>%
+#   scale() %>%
+#   as_tibble %>%
+#   mutate(Customer_Key = rfm$Customer_Key,
+#          Customer_Segment = rfm$Customer_Segment)
+
+rfm_recipe <- rfm %>%
+  select(RecencyDays,Frequency,Monetary,Tenure) %>%
+  recipe() %>%
+  step_YeoJohnson(all_numeric()) %>%
+  step_center(all_numeric()) %>%
+  step_scale(all_numeric()) %>%
+  prep(data = train_data)
+
+rfm_norm <- bake(rfm_recipe, new_data = rfm) %>%
   mutate(Customer_Key = rfm$Customer_Key,
-         Customer_Segment = rfm$Customer_Segment)
+         Customer_Segment = rfm$Customer_Segment) %>%
+  select(Customer_Segment,everything())
 
 # --------------------------------------------------------------------------------- 
 # snake plot
@@ -149,6 +164,7 @@ rfm_norm %>%
   geom_line(size=1.5) +
   geom_point(size=2) +
   scale_colour_manual(values = cols, "") +
+  ylim(-2, 2) +
   theme_light()
 
 # --------------------------------------------------------------------------------- 

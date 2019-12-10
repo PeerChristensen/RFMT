@@ -6,6 +6,7 @@ library(ggiraphExtra)
 library(factoextra)
 library(h2o)
 library(ggthemes)
+library(recipes)
 
 channel <-odbcConnect("saxo034", uid="R", pwd="sqlR2017")
 
@@ -127,18 +128,32 @@ rfm %>%
 
 # preprocess data: log, center, scale
 
-rfm_norm <- rfm %>%
-  select(RecencyDays,Frequency,Monetary,Tenure) %>% 
-  mutate(Monetary = ifelse(Monetary<0,NA,Monetary)) %>%
-  apply(2,function(x) log(x+1)) %>%
-  apply(2, function(x) round(x-mean(x,na.rm=T),1)) %>%
-  scale() %>%
-  as_tibble %>%
+# old way 
+# rfm_norm <- rfm %>%
+#   select(RecencyDays,Frequency,Monetary,Tenure) %>% 
+#   mutate(Monetary = ifelse(Monetary<0,NA,Monetary)) %>%
+#   apply(2,function(x) log(x+1)) %>%
+#   apply(2, function(x) round(x-mean(x,na.rm=T),1)) %>%
+#   scale() %>%
+#   as_tibble %>%
+#   mutate(Customer_Key = rfm$Customer_Key,
+#          Customer_Segment = rfm$Customer_Segment) %>%
+#   select(Customer_Segment,everything()) %>%
+#   drop_na()
+
+rfm_recipe <- rfm %>%
+  select(RecencyDays,Frequency,Monetary,Tenure) %>%
+  recipe() %>%
+  step_YeoJohnson(all_numeric()) %>%
+  step_center(all_numeric()) %>%
+  step_scale(all_numeric()) %>%
+  prep(data = train_data)
+
+rfm_norm <- bake(rfm_recipe, new_data = rfm) %>%
   mutate(Customer_Key = rfm$Customer_Key,
          Customer_Segment = rfm$Customer_Segment) %>%
-  select(Customer_Segment,everything()) %>%
-  drop_na()
-
+  select(Customer_Segment,everything())
+  
 # -------------------------------------------------------------------------------------
 
 # kmeans with H2O
@@ -147,7 +162,8 @@ h2o.init(nthreads = -1)
 km_training <- as.h2o(rfm_norm[2:5])
 x = names(km_training)
 
-km <- h2o.kmeans(training_frame = km_training, k = 10,
+km <- h2o.kmeans(training_frame = km_training, 
+                 k = 10,
                  x = x,
                  standardize = F,
                  estimate_k = T)
