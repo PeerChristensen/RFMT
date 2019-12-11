@@ -184,28 +184,41 @@ km@model$centers %>%
   scale_colour_tableau() +
   theme(legend.title = element_blank())
 
+cluster <- h2o.predict(km,km_training) %>% as_tibble()
+
+rfm_clusters <- tibble(cluster, rfm_norm[2:5])
+
+object = list(data = rfm_clusters, cluster = rfm_clusters$cluster$predict)
+
+fviz_cluster(object, data = rfm_norm[,2:5], geom=c("point")) +
+    theme_light()
+
+# -------------------------------------------------------------------------------------------
+
 # with factoextra
 
-#fviz_nbclust(rfm_norm[,2:5], kmeans) too much data
+# fviz_nbclust(rfm_norm[,2:5], kmeans) too much data
+# 
+# rfm_clust <- kmeans(rfm_norm[,2:5], centers=4, nstart = 25)
+# 
+# #table(rfm$Customer_Segment,rfm_clust$cluster)
+# 
+# fviz_cluster(rfm_clust, data = rfm_norm[,2:5], geom=c("point")) +
+#   theme_light()
+# 
+### object = list(data = mydata, cluster = myclust))
 
-rfm_clust <- kmeans(rfm_norm[,2:5], centers=4, nstart = 25)
-
-#table(rfm$Customer_Segment,rfm_clust$cluster)
-
-fviz_cluster(rfm_clust, data = rfm_norm[,2:5], geom=c("point")) +
-  theme_light()
-
-# snake plot with cluster means
-
-rfm_clust$centers %>% 
-  as_tibble() %>%
-  mutate(Customer_Segment_km = factor(1:4)) %>% # last val = n clusters
-  gather(metric, value, -Customer_Segment_km) %>%
-  group_by(Customer_Segment_km,metric) %>%
-  ungroup() %>%
-  mutate(metric = fct_relevel(metric, "RecencyDays","Frequency","Monetary")) %>%
-  ggplot(aes(x=factor(metric),y=value,group=Customer_Segment_km,colour = Customer_Segment_km)) +
-  geom_line(size=1.5) +
-  geom_point(size=2) +
-  theme_light() +
-  scale_colour_tableau()
+# # snake plot with cluster means
+# 
+# rfm_clust$centers %>% 
+#   as_tibble() %>%
+#   mutate(Customer_Segment_km = factor(1:4)) %>% # last val = n clusters
+#   gather(metric, value, -Customer_Segment_km) %>%
+#   group_by(Customer_Segment_km,metric) %>%
+#   ungroup() %>%
+#   mutate(metric = fct_relevel(metric, "RecencyDays","Frequency","Monetary")) %>%
+#   ggplot(aes(x=factor(metric),y=value,group=Customer_Segment_km,colour = Customer_Segment_km)) +
+#   geom_line(size=1.5) +
+#   geom_point(size=2) +
+#   theme_light() +
+#   scale_colour_tableau()
