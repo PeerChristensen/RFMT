@@ -8,7 +8,11 @@ library(h2o)
 library(ggthemes)
 library(recipes)
 
+<<<<<<< HEAD
 credentials <- read_rds("credentials.rds")
+=======
+channel <-odbcConnect("", uid="R", pwd="")
+>>>>>>> 3ac67030154dac1bcf55026f744daea7f17078d8
 
 channel <-odbcConnect(credentials[1], uid=credentials[2], pwd=credentials[3])
 
