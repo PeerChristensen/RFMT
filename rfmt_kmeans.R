@@ -8,11 +8,15 @@ library(h2o)
 library(ggthemes)
 library(recipes)
 
-channel <-odbcConnect("saxo034", uid="R", pwd="sqlR2017")
+credentials <- read_rds("credentials.rds")
 
-sqlquery <- "SELECT [DateOrdered_Key],[Customer_Key],[5_DB2]
-              FROM [EDW].[fact].[OrderFact]
-                where Customer_Key != -1
+channel <-odbcConnect(credentials[1], uid=credentials[2], pwd=credentials[3])
+
+sqlquery <- "SELECT [DateOrdered_Key], t1.[Customer_Key], [5_DB2]
+              FROM [EDW].[fact].[OrderFact] [t1]
+              INNER JOIN [DataMartMisc].[temp].[PremiumSubscribers_Active] [t2] on t2.[Customer_Key] = t1.[Customer_Key]
+                where t1.Customer_Key != -1
+                and IsActive = 1
                 and DateCancelled_Key = -1
                 and [DateOrdered_Key] >= (SELECT CONVERT(INT, CONVERT(VARCHAR(8), GETDATE()-365 * 3, 112)))"
 
@@ -58,7 +62,6 @@ tenure <- df %>%
   group_by(Customer_Key) %>%
   summarise(Tenure = as.numeric(last_date - min(as_date(Date)))) %>%
   mutate(T_Quantile = ntile(Tenure, 4)) # quartile
-
 
 # --------------------------------------------------------------------------
 
@@ -109,14 +112,15 @@ rfm %>%
 
 # --------------------------------------------------------------------------------
 # plots
+cols = c("#c9b037", "#b4b4b4", "#6a3805")
 
 
 # plot faceted distribution with long format
 
 rfm %>% 
   filter(Monetary>=0) %>%
-  mutate(RecencyDays = RecencyDays,logFrequency = log(Frequency), logMonetary = log(Monetary+1),Tenure = Tenure) %>%
-  pivot_longer(c(RecencyDays, logFrequency, logMonetary,Tenure)) %>%
+  mutate(RecencyDays = log(RecencyDays),Frequency = log(Frequency), Monetary = log(Monetary+1),Tenure = Tenure) %>%
+  pivot_longer(c(RecencyDays, Frequency, Monetary,Tenure)) %>%
   #gather(metric, value, -CustomerID, - Customer_Segment) %>%
   ggplot(aes(x=value, fill = Customer_Segment)) +
   geom_density(alpha=.7) +
@@ -153,7 +157,11 @@ rfm_norm <- bake(rfm_recipe, new_data = rfm) %>%
   mutate(Customer_Key = rfm$Customer_Key,
          Customer_Segment = rfm$Customer_Segment) %>%
   select(Customer_Segment,everything())
-  
+
+#write_csv(rfm_norm, "data_2019-12-12.csv")
+
+rfm_norm <- read_csv("data_2019-12-12.csv")
+
 # -------------------------------------------------------------------------------------
 
 # kmeans with H2O
@@ -168,6 +176,9 @@ km <- h2o.kmeans(training_frame = km_training,
                  standardize = F,
                  estimate_k = T)
 
+saveRDS(km, "km_model_2019-12-12.rds")
+
+km <- readRDS("km_model_2019-12-12.rds")
 
 km@model$centers %>%
   as_tibble() %>%
@@ -180,18 +191,54 @@ km@model$centers %>%
   ggplot(aes(x=factor(metric),y=value,group=Customer_Segment_km,colour = Customer_Segment_km)) +
   geom_line(size=1.5) +
   geom_point(size=2) +
+  ylim(-2,2) +
   theme_light() +
   scale_colour_tableau() +
   theme(legend.title = element_blank())
 
-cluster <- h2o.predict(km,km_training) %>% as_tibble()
+cluster <- h2o.predict(km,km_training) %>% as_tibble() 
 
-rfm_clusters <- tibble(cluster, rfm_norm[2:5])
+rfm_clusters <- tibble(Cluster = factor(cluster$predict+1)) %>% bind_cols(rfm_norm) %>%
+  select(-Customer_Segment,-Customer_Key)
+ # filter(Monetary > -5 & Monetary < 5) %>%
 
-object = list(data = rfm_clusters, cluster = rfm_clusters$cluster$predict)
+# n per group 
+rfm_clusters %>% 
+  group_by(Cluster) %>%
+  count() %>% htmlTable::htmlTable()
 
-fviz_cluster(object, data = rfm_norm[,2:5], geom=c("point")) +
-    theme_light()
+# plotly 3d scatter
+library(plotly)
+
+rfm_clusters_plot <- rfm_clusters %>%
+  filter(Monetary >= -5 & Monetary <= 5) %>%
+  sample_frac(.2)
+  
+colors <- ggthemes_data[["tableau"]][["color-palettes"]][["regular"]]$`Tableau 10`[1:3,] %>% 
+  pull(value)
+
+p <- plot_ly(rfm_clusters_plot, x = ~RecencyDays, y = ~Frequency, z = ~Monetary, 
+        color = ~Cluster, size = ~Tenure, colors = colors, opacity = .7) %>%
+  add_markers() %>%
+  layout(scene = list(xaxis = list(title = 'Recency'),
+                      yaxis = list(title = 'Frequency'),
+                      zaxis = list(title = 'Monetary')))
+
+p
+
+#not used
+
+# text = ~paste('Customer Key:', Customer_Key,
+#               "<br>Recency:", RecencyDays1,
+#               "<br>Frequency:", Frequency1,
+#               "<br>Monetary:", Monetary1,
+#               "<br>Tenure:", Tenure1)
+
+# with factoextra
+# object = list(data = rfm_clusters[3:6], cluster = rfm_clusters$Cluster)
+# 
+# fviz_cluster(object, data = rfm_norm[,2:5], geom=c("point")) +
+#     theme_light()
 
 # -------------------------------------------------------------------------------------------
 

@@ -5,17 +5,23 @@ library(tidyverse)
 library(ggiraphExtra)
 library(recipes)
 
+credentials <- read_rds("credentials.rds")
 
-channel <-odbcConnect("saxo034", uid="R", pwd="sqlR2017")
+channel <-odbcConnect(credentials[1], uid=credentials[2], pwd=credentials[3])
 
-sqlquery <- "SELECT [DateOrdered_Key],[Customer_Key],[5_DB2]
-              FROM [EDW].[fact].[OrderFact]
-                where Customer_Key != -1
+sqlquery <- "SELECT [DateOrdered_Key],
+                    t1.[Customer_Key],
+                    [5_DB2]
+              FROM [EDW].[fact].[OrderFact] [t1]
+              INNER JOIN [DataMartMisc].[temp].[PremiumSubscribers_Active] [t2] on t2.[Customer_Key] = t1.[Customer_Key]
+                where t1.Customer_Key != -1
+                and IsActive = 1
                 and DateCancelled_Key = -1
                 and [DateOrdered_Key] >= (SELECT CONVERT(INT, CONVERT(VARCHAR(8), GETDATE()-365 * 3, 112)))"
 
 df <- sqlQuery(channel, sqlquery)
 close(channel)
+
 
 cols = c("#c9b037", "#b4b4b4", "#6a3805")
 
@@ -23,7 +29,6 @@ df <- df %>%
   as_tibble() %>%
   mutate(Date = ymd(DateOrdered_Key)) %>%
   select(Customer_Key, Date, DB2 = `5_DB2`)
-
 
 monetary <- df %>% 
   group_by(Customer_Key) %>%
@@ -104,7 +109,7 @@ rfm %>%
 # n per segment
 rfm %>%
   group_by((Customer_Segment)) %>%
-  count() # %>% htmlTable()
+  count() %>% htmlTable::htmlTable()
 
 # --------------------------------------------------------------------------------
 # plots
@@ -114,8 +119,18 @@ rfm %>%
 
 rfm %>% 
   filter(Monetary>=0) %>%
-  mutate(RecencyDays = RecencyDays,logFrequency = log(Frequency), logMonetary = log(Monetary+1),Tenure = Tenure) %>%
+  mutate(RecencyDays = log(RecencyDays),logFrequency = log(Frequency), logMonetary = log(Monetary+1),Tenure = Tenure) %>%
   pivot_longer(c(RecencyDays, logFrequency, logMonetary,Tenure)) %>%
+  #gather(metric, value, -CustomerID, - Customer_Segment) %>%
+  ggplot(aes(x=value, fill = Customer_Segment)) +
+  geom_density(alpha=.7) +
+  facet_wrap(~name,scales = "free") +
+  scale_fill_manual(values = cols,"") +
+  theme_minimal()
+
+rfm_norm %>%
+  filter(Monetary>=-3 & Monetary <= 3) %>%
+  pivot_longer(c(RecencyDays, Frequency, Monetary,Tenure)) %>%
   #gather(metric, value, -CustomerID, - Customer_Segment) %>%
   ggplot(aes(x=value, fill = Customer_Segment)) +
   geom_density(alpha=.7) +
