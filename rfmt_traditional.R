@@ -7,11 +7,7 @@ library(recipes)
 
 credentials <- read_rds("credentials.rds")
 
-<<<<<<< HEAD
 channel <-odbcConnect(credentials[1], uid=credentials[2], pwd=credentials[3])
-=======
-channel <-odbcConnect("", uid="R", pwd="")
->>>>>>> 3ac67030154dac1bcf55026f744daea7f17078d8
 
 sqlquery <- "SELECT [DateOrdered_Key],
                     t1.[Customer_Key],
