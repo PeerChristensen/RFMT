@@ -138,7 +138,7 @@ rfmts <- list(recency,frequency,monetary,tenure,streaming) %>%
 
 # ----------------------------------------------------------------------
   # plots
-  cols = c("#c9b037", "#b4b4b4", "#6a3805")
+  # cols = c("#c9b037", "#b4b4b4", "#6a3805")
 
 
 # plot faceted distribution with long format
@@ -176,6 +176,24 @@ h2o.init(nthreads = -1)
 km_training <- as.h2o(rfmts_norm)
 x = names(km_training)
 
+# scree plot
+max_groups <- 16
+wss_h2o <- numeric(max_groups)
+
+for(i in 1:max_groups){
+  
+  km1 <- h2o.kmeans(km_training, x= x, estimate_k = FALSE, k = i, standardize = FALSE, 
+                        nfolds = 5, max_iterations = 25)   
+  wss_h2o[i] <- h2o.tot_withinss(km1, xval = TRUE) # xval=TRUE means cross validation used
+}
+
+par(font.main = 1)
+plot(1:max_groups, wss_h2o, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares", bty = "l")
+grid()
+
+# train
+
 km <- h2o.kmeans(training_frame = km_training, 
                  k = 10,
                  x = x,
@@ -184,6 +202,9 @@ km <- h2o.kmeans(training_frame = km_training,
 
 h2o.saveModel(km,paste0("rfmts_kmeans_model_",today()))
 
+
+
+# plots
 p1 <- km@model$centers %>%
   as_tibble() %>%
   mutate(Customer_Segment_km = centroid) %>%
