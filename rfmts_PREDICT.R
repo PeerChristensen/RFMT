@@ -67,7 +67,7 @@ BTC_keys <- df3 %>%
   pull(Customer_Key)
 
 
-# RFMT
+# RFMTS
 
 df <- df %>%
   as_tibble() %>%
@@ -186,14 +186,3 @@ p2 <- rfmts_clusters %>%
 
 gridExtra::grid.arrange(p1,p2, ncol =2)
 
-
-
-
-
-
-
-
-
-h2o.init()
-
-km <- h2o.loadModel("rfmts_kmeans_model_2019-12-27\\KMeans_model_R_1577440958000_1")

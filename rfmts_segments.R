@@ -26,6 +26,7 @@ sqlquery1 <- "SELECT [DateOrdered_Key], t1.[Customer_Key], [5_DB2]
 
 df <- sqlQuery(channel, sqlquery1)
 
+# streaming
 sqlquery2 <- "SELECT DISTINCT [Premium_Subscribed].[Customer_Key], ISNULL(t.[n],0) [n]
                 FROM [DataMartMisc].[temp].[Premium_Subscribed] 
                 LEFT JOIN 
@@ -43,6 +44,7 @@ sqlquery2 <- "SELECT DISTINCT [Premium_Subscribed].[Customer_Key], ISNULL(t.[n],
 
 df2 <- sqlQuery(channel, sqlquery2)
 
+# segment
 sqlquery3 <- "SELECT DISTINCT Customer_Key,Segment
               FROM [DataMartMisc].[r].[CLTVinput]"
 

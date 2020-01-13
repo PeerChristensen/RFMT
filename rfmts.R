@@ -3,7 +3,7 @@
 # Peer Christensen
 
 # ---------------------------------------------------------
-# PAckages
+# Packages
 
 library(RODBC)
 library(lubridate)
@@ -63,19 +63,14 @@ BTC_keys <- df3 %>%
   pull(Customer_Key)
 
 
-# RFMT
+# ---------------------------------------------------------
+# RFMTS with BTC
 
 df <- df %>%
   as_tibble() %>%
   filter(Customer_Key %in% BTC_keys) %>%
   mutate(Date = ymd(DateOrdered_Key)) %>%
   select(Customer_Key, Date, DB2 = `5_DB2`)
-
-
-monetary <- df %>% 
-  group_by(Customer_Key) %>%
-  summarise(Monetary = sum(DB2))
-
 
 # RECENCY
 
@@ -91,17 +86,24 @@ frequency <- df %>%
   group_by(Customer_Key) %>%
   summarise(Frequency = n())
 
+# MONETARY
+
+monetary <- df %>% 
+  group_by(Customer_Key) %>%
+  summarise(Monetary = sum(DB2))
+
 # Tenure: days since first transaction 
 
 tenure <- df %>%
   group_by(Customer_Key) %>%
   summarise(Tenure = as.numeric(last_date - min(as_date(Date))))
 
-# streaming
+# streaming (frequency)
+
 streaming <- df2 %>%
   as_tibble() %>%
   filter(Customer_Key %in% BTC_keys) %>%
-  rename(Streaming =n)
+  rename(Streaming = n)
 
 # --------------------------------------------------------------------------
 
@@ -109,51 +111,11 @@ streaming <- df2 %>%
 
 rfmts <- list(recency,frequency,monetary,tenure,streaming) %>% 
   reduce(inner_join) 
-# 
-# # add rfmts segment and score 
-# 
-# rfmts <- rfmts %>%
-#   mutate(RFM_Segment = paste0(R_Quantile,F_Quantile,M_Quantile,T_Quantile,S_Quantile),
-#          Score   = R_Quantile+F_Quantile+M_Quantile+T_Quantile+S_Quantile)
-# 
-# 
-# rfmts <- rfmts %>%
-#   mutate(Customer_Segment = case_when(Score > 14 ~ "Gold",
-#                                       Score > 9 ~ "Silver",
-#                                       Score > 0 ~ "Bronze")) %>%
-#   mutate(Customer_Segment = fct_relevel(Customer_Segment,"Gold","Silver","Bronze")) 
-# 
-# rfmts %>%
-#   group_by(Customer_Segment) %>%
-#   summarise(R_mean = mean(RecencyDays),
-#             F_mean = mean(Frequency),
-#             M_mean = mean(Monetary),
-#             T_mean = mean(Tenure),
-#             S_mean = mean(Streaming))
 
-# n per segment
-# rfmts %>%
-#   group_by((Customer_Segment)) %>%
-#   count()
+# check value ranges
+rfmts %>% map_df(range)
 
-# ----------------------------------------------------------------------
-  # plots
-  # cols = c("#c9b037", "#b4b4b4", "#6a3805")
-
-
-# plot faceted distribution with long format
-
-# rfmts %>% 
-#   filter(Monetary>=0) %>%
-#   mutate(RecencyDays = log(RecencyDays),Frequency = log(Frequency), Monetary = log(Monetary+1),Streaming=log(Streaming),Tenure = Tenure) %>%
-#   pivot_longer(c(RecencyDays, Frequency, Monetary,Tenure,Streaming)) %>%
-#   #gather(metric, value, -CustomerID, - Customer_Segment) %>%
-#   ggplot(aes(x=value, fill = Customer_Segment)) +
-#   geom_density(alpha=.7) +
-#   facet_wrap(~name,scales = "free") +
-#   scale_fill_manual(values = cols,"") +
-#   theme_minimal()
-
+# transform
 rfmts_recipe <- rfmts %>%
   select(RecencyDays,Frequency,Monetary,Tenure,Streaming) %>%
   recipe() %>%
@@ -169,8 +131,8 @@ Customer_Key <- rfmts_norm$Customer_Key
 
 rfmts_norm <- rfmts_norm %>% select(-Customer_Key)
 # -------------------------------------------------------------------------------------
-
 # kmeans with H2O
+
 h2o.init(nthreads = -1)
 
 km_training <- as.h2o(rfmts_norm)
@@ -187,10 +149,10 @@ for(i in 1:max_groups){
   wss_h2o[i] <- h2o.tot_withinss(km1, xval = TRUE) # xval=TRUE means cross validation used
 }
 
-par(font.main = 1)
+
 plot(1:max_groups, wss_h2o, type="b", xlab="Number of Clusters",
      ylab="Within groups sum of squares", bty = "l")
-grid()
+
 
 # train
 
@@ -244,4 +206,100 @@ p2 <- rfmts_clusters %>%
   theme_minimal()
 
 gridExtra::grid.arrange(p1,p2, ncol =2)
+
+
+# many clusters
+
+km <- h2o.kmeans(training_frame = km_training, 
+                 k = 7,
+                 x = x,
+                 standardize = T,
+                 estimate_k = F)
+
+
+# plots
+p1 <- km@model$centers %>%
+  as_tibble() %>%
+  mutate(Customer_Segment_km = centroid) %>%
+  select(-centroid) %>%
+  gather(metric, value, -Customer_Segment_km) %>%
+  group_by(Customer_Segment_km,metric) %>%
+  ungroup() %>%
+  mutate(metric = fct_relevel(metric, "recencydays","frequency","monetary","tenure")) %>%
+  ggplot(aes(x=factor(metric),y=value,group=Customer_Segment_km,colour = Customer_Segment_km)) +
+  geom_line(size=1.5) +
+  geom_point(size=2) +
+ # ylim(-2,2) +
+  theme_light() +
+  scale_colour_tableau() +
+  theme(legend.title = element_blank(),
+        legend.position = "top")
+
+cluster <- h2o.predict(km,km_training) %>% as_tibble() 
+
+rfmts_clusters <- tibble(Cluster = factor(cluster$predict+1)) %>% bind_cols(rfmts_norm)
+
+# n per group 
+rfmts_clusters %>% 
+  group_by(Cluster) %>%
+  count() %>% htmlTable::htmlTable()
+
+
+# box plots
+p2 <- rfmts_clusters %>%
+  pivot_longer(-Cluster) %>%
+  ggplot(aes(Cluster,value,colour=Cluster)) +
+  geom_jitter(alpha= .05, width = .2) +
+  geom_boxplot(alpha = .1, outlier.shape = NA) +
+  #ylim(-5,5) +
+  facet_wrap(~name) +
+  scale_colour_tableau(guide=F) +
+  theme_minimal()
+
+gridExtra::grid.arrange(p1,p2, ncol =2)
+
+# 
+# # add rfmts segment and score 
+# 
+# rfmts <- rfmts %>%
+#   mutate(RFM_Segment = paste0(R_Quantile,F_Quantile,M_Quantile,T_Quantile,S_Quantile),
+#          Score   = R_Quantile+F_Quantile+M_Quantile+T_Quantile+S_Quantile)
+# 
+# 
+# rfmts <- rfmts %>%
+#   mutate(Customer_Segment = case_when(Score > 14 ~ "Gold",
+#                                       Score > 9 ~ "Silver",
+#                                       Score > 0 ~ "Bronze")) %>%
+#   mutate(Customer_Segment = fct_relevel(Customer_Segment,"Gold","Silver","Bronze")) 
+# 
+# rfmts %>%
+#   group_by(Customer_Segment) %>%
+#   summarise(R_mean = mean(RecencyDays),
+#             F_mean = mean(Frequency),
+#             M_mean = mean(Monetary),
+#             T_mean = mean(Tenure),
+#             S_mean = mean(Streaming))
+
+# n per segment
+# rfmts %>%
+#   group_by((Customer_Segment)) %>%
+#   count()
+
+# ----------------------------------------------------------------------
+# plots
+# cols = c("#c9b037", "#b4b4b4", "#6a3805")
+
+
+# plot faceted distribution with long format
+
+# rfmts %>% 
+#   filter(Monetary>=0) %>%
+#   mutate(RecencyDays = log(RecencyDays),Frequency = log(Frequency), Monetary = log(Monetary+1),Streaming=log(Streaming),Tenure = Tenure) %>%
+#   pivot_longer(c(RecencyDays, Frequency, Monetary,Tenure,Streaming)) %>%
+#   #gather(metric, value, -CustomerID, - Customer_Segment) %>%
+#   ggplot(aes(x=value, fill = Customer_Segment)) +
+#   geom_density(alpha=.7) +
+#   facet_wrap(~name,scales = "free") +
+#   scale_fill_manual(values = cols,"") +
+#   theme_minimal()
 
